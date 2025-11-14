@@ -27,6 +27,7 @@ Os testes de fluxo (cliente e admin) e o laudo de qualidade foram documentados e
 Verificar pasta SCREENSHOTS.
 
 ## 🛠️ Stack técnica (Code-First)
+Verificar arquivo `index.hmtl`
 - Front-end: HTML5, TailwindCSS, JavaScript (ES6+)
 - Back-end (BaaS): Google Firebase
 - Serviços Firebase: Firebase Hosting, Cloud Firestore, Firebase Storage
