@@ -24,7 +24,7 @@ Este repositório documenta a entrega do projeto Doce Sabor, implementado com HT
 Os testes de fluxo (cliente e admin) e o laudo de qualidade foram documentados em arquivos separados. O fluxo de compra do cliente e o fluxo de gerenciamento do admin foram validados com sucesso.
 
 ## 🖼️ Screenshots
-Verificar arquivo SCREENSHOTS.md.
+Verificar pasta SCREENSHOTS.
 
 ## 🛠️ Stack técnica (Code-First)
 - Front-end: HTML5, TailwindCSS, JavaScript (ES6+)
