@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doce Sabor - Versão Definitiva</title>
+    
+    <!-- Bibliotecas Externas -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <!-- CSS Embutido -->
+    <style>
+        body { font-family: 'Quicksand', sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #fdf2f8; }
+        ::-webkit-scrollbar-thumb { background: #f472b6; border-radius: 10px; }
+
+        .payment-radio:checked + div {
+            border-color: #ec4899;
+            background-color: #fdf2f8;
+            color: #be185d;
+        }
+        .payment-radio:checked + div .check-icon {
+            opacity: 1;
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-pink-50 text-gray-800 h-screen flex flex-col overflow-hidden relative">
+
+    <!-- Tela de Carregamento (Loading) -->
+    <div id="app-loading" class="absolute inset-0 bg-pink-500 z-50 flex flex-col items-center justify-center text-white transition-opacity duration-500">
+        <div class="text-6xl animate-bounce mb-4">🧁</div>
+        <h2 class="text-2xl font-bold">Doce Sabor</h2>
+        <p id="loading-text" class="text-pink-200 mt-2 animate-pulse">Carregando Sistema...</p>
+        <p id="error-text" class="hidden text-red-200 mt-4 bg-red-900/20 px-4 py-2 rounded text-sm text-center max-w-md"></p>
+        <button id="retry-btn" onclick="location.reload()" class="hidden mt-4 bg-white text-pink-600 px-6 py-2 rounded-full font-bold hover:bg-gray-100">Tentar Novamente</button>
+    </div>
+
+    <!-- Barra de Navegação (Navbar) -->
+    <nav class="bg-white border-b border-pink-100 shadow-sm flex-none z-20 relative">
+        <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div id="nav-logo" class="flex items-center gap-2 cursor-pointer hover:opacity-80 transition">
+                <span class="text-2xl">🧁</span>
+                <span class="font-bold text-xl text-pink-600 tracking-tight">DoceSabor</span>
+            </div>
+            <div class="flex items-center gap-3">
+                
+                <!-- Botão de Admin (Visível apenas se state.user.isAdmin for true) -->
+                <button id="nav-admin-btn" class="hidden text-sm font-bold bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full transition shadow-md shadow-blue-200">
+                    Admin
+                </button>
+                
+                <!-- Botão do Carrinho -->
+                <button id="nav-cart-btn" class="relative p-2 hover:bg-pink-50 rounded-full transition group">
+                    <i data-lucide="shopping-bag" class="w-6 h-6 text-gray-600 group-hover:text-pink-500"></i>
+                    <span id="cart-count" class="absolute -top-1 -right-1 bg-pink-500 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full transform scale-0 transition-transform duration-200">0</span>
+                </button>
+
+                <!-- UI do Usuário Logado -->
+                <div id="user-ui" class="hidden items-center gap-3">
+                    <span id="user-name-display" class="hidden md:block text-sm font-bold text-pink-600 bg-pink-50 px-3 py-1 rounded-full"></span>
+                    <button id="nav-orders-btn" class="text-sm font-bold text-gray-600 hover:text-pink-600">Meus Pedidos</button>
+                    <button id="nav-logout-btn" class="text-sm font-bold text-red-400 hover:text-red-600 border border-red-100 px-3 py-1 rounded-full hover:bg-red-50">Sair</button>
+                </div>
+
+                <!-- UI do Visitante (Guest) -->
+                <div id="guest-ui">
+                    <button id="nav-login-btn" class="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-full text-sm font-bold transition shadow-md shadow-pink-200">Entrar</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Área Principal de Conteúdo -->
+    <main id="main-view" class="flex-1 overflow-y-auto p-4 relative"></main>
+
+    <!-- Rodapé de Status da Conexão -->
+    <div class="bg-white border-t border-pink-50 py-2 px-4 text-center text-xs text-gray-400 flex justify-center items-center gap-2">
+        <div id="status-dot" class="w-2 h-2 rounded-full bg-gray-300"></div>
+        <span id="status-text">Iniciando...</span>
+    </div>
+
+    <!-- Container de Notificações (Toasts) -->
+    <div id="toast-box" class="fixed bottom-5 right-5 flex flex-col gap-2 pointer-events-none z-50"></div>
+
+
+    <!-- 
+    ================================================================
+    INÍCIO DO SCRIPT (TODA A LÓGICA DO APP)
+    ================================================================
+    -->
+    <script type="module">
+        // Importações do Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, doc, getDoc, setDoc, collection, addDoc, 
+            query, orderBy, onSnapshot, serverTimestamp, updateDoc, 
+            deleteDoc, where, getDocs
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- ⚠️ ATENÇÃO: COLE SUAS CHAVES DO FIREBASE AQUI ⚠️ ---
+        // (Encontre em Configurações do Projeto > Seus Aplicativos > Configuração do SDK > Config)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBZSr-WAxqPaNlvkacqT_7ddPJfjG-Im5s",
+            authDomain: "docesabor-f1c2b.firebaseapp.com",
+            projectId: "docesabor-f1c2b",
+            storageBucket: "docesabor-f1c2b.firebasestorage.app",
+            messagingSenderId: "216927305222",
+            appId: "1:216927305222:web:c2eaa0bada53475ea10d87",
+            measurementId: "G-CBF5DHD3MF"
+        };
+        // -------------------------------------------------------------
+
+        // ID Fictício para simular o ambiente compartilhado (pode manter)
+        const appId = 'doce-sabor-app';
+        let auth, db;
+        let isFirebaseReady = false;
+
+        // Estado local da aplicação (Dados locais)
+        const state = {
+            user: null,         // Guarda os dados do usuário logado (ex: {name, email, isAdmin})
+            cart: [],           // Guarda os itens do carrinho (ex: [{id, name, price, qty}])
+            products: [],       // Lista de produtos carregada do Firestore
+            paymentMethod: 'credit_card',
+            reviews: [
+                { name: "Mariana Silva", rating: 5, comment: "Melhor Red Velvet!", time: "Há 2 dias" },
+                { name: "João Pedro", rating: 5, comment: "Chegou super rápido.", time: "Há 1 semana" },
+                { name: "Ana Clara", rating: 4, comment: "O de Churros é divino.", time: "Há 3 dias" },
+                { name: "Lucas Mendes", rating: 5, comment: "Atendimento nota 10.", time: "Ontem" }
+            ],
+            // Produtos padrão para popular o banco (seeding)
+            seedProducts: [
+                { name: "Red Velvet", price: 12.00, icon: "🍰", desc: "Massa vermelha aveludada.", isAvailable: true, image: "" },
+                { name: "Chocolate Belga", price: 14.50, icon: "🍫", image: "https://images.unsplash.com/photo-1576618148400-f54bed99fcfd?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3", desc: "Ganache de chocolate 70%.", isAvailable: true },
+                { name: "Morango Silvestre", price: 11.00, icon: "🍓", desc: "Geleia natural de morango.", isAvailable: true, image: "" },
+                { name: "Blueberry", price: 13.00, icon: "🫐", image: "https://images.unsplash.com/photo-1599785209707-307ab52472d9?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3", desc: "Mirtilos frescos.", isAvailable: true },
+                { name: "Churros", price: 10.50, icon: "🍮", desc: "Recheio generoso de doce de leite.", isAvailable: true, image: "" },
+                { name: "Limão Siciliano", price: 11.50, icon: "🍋", desc: "Mousse cítrico refrescante.", isAvailable: true, image: "" },
+                { name: "Baunilha Colorida", price: 9.90, icon: "🌈", desc: "Massa de baunilha com confeitos.", isAvailable: false, image: "" }
+            ]
+        };
+
+        /**
+         * Inicializa a aplicação Firebase
+         * Conecta-se anonimamente para obter permissões de leitura/escrita.
+         */
+        async function initApp() {
+            // Verifica se a configuração do Firebase foi preenchida
+            if (firebaseConfig.apiKey === "SUA_API_KEY_AQUI") {
+                showError("Configuração do Firebase pendente no 'Projeto_Definitivo.html'.");
+                return;
+            }
+
+            try {
+                // Inicializa Firebase
+                const appInst = initializeApp(firebaseConfig);
+                auth = getAuth(appInst);
+                db = getFirestore(appInst);
+
+                // Usa Auth Anônima para conectar ao banco (necessário para as regras de segurança)
+                await signInAnonymously(auth);
+
+                // Carrega os produtos do banco de dados
+                loadProductsFromFirestore();
+
+                isFirebaseReady = true;
+                updateStatus(true);
+                hideLoadingScreen();
+                
+                // Tenta recuperar o usuário do localStorage (sessão)
+                const savedUser = localStorage.getItem('cupcake_user');
+                if(savedUser) {
+                    try { 
+                        state.user = JSON.parse(savedUser); 
+                        updateNav(); 
+                    } catch(e) {
+                        // Se falhar, limpa o usuário inválido
+                        localStorage.removeItem('cupcake_user');
+                    }
+                }
+
+                // Configura os listeners dos botões da barra de navegação
+                setupNavListeners();
+                // Inicia o roteador na página 'home'
+                app.router('home');
+
+            } catch (err) {
+                console.error("Erro na inicialização do Firebase:", err);
+                showError("Erro fatal ao conectar: " + err.message);
+                updateStatus(false);
+            }
+        }
+
+        /**
+         * Serviço de Autenticação (Simulado)
+         * Gerencia o registro e login de usuários no Firestore (coleção 'users')
+         * Nota: Salva senhas em texto plano, não recomendado para produção real.
+         */
+        const authService = {
+            // Limpa o email para usar como ID seguro no Firestore
+            cleanEmail: (email) => email.toLowerCase().trim().replace(/[^a-z0-9@.]/g, '_'),
+            
+            // Registra um novo usuário na coleção 'users'
+            async register(name, email, password) {
+                if (!isFirebaseReady) throw new Error("Sem conexão com o banco.");
+                const emailId = this.cleanEmail(email);
+                
+                const userRef = doc(db, "users", emailId);
+                
+                const docSnap = await getDoc(userRef);
+                if (docSnap.exists()) throw new Error("E-mail já cadastrado.");
+
+                // Usuário padrão não é admin
+                const userData = { 
+                    name, 
+                    email, 
+                    password, // Salva a senha (não seguro para produção)
+                    isAdmin: false, 
+                    createdAt: serverTimestamp() 
+                };
+                await setDoc(userRef, userData);
+                this.loginLocal(userData); // Faz o login automaticamente após o registro
+            },
+
+            // Loga um usuário verificando a coleção 'users'
+            async login(email, password) {
+                if (!isFirebaseReady) throw new Error("Sem conexão com o banco.");
+                const emailId = this.cleanEmail(email);
+                
+                const userRef = doc(db, "users", emailId);
+                
+                const docSnap = await getDoc(userRef);
+                if (!docSnap.exists()) throw new Error("Usuário não encontrado.");
+                
+                // Verificação manual de senha (Simulação)
+                const userData = docSnap.data();
+                if (userData.password !== password) throw new Error("Senha incorreta.");
+                
+                this.loginLocal(userData); // Salva o usuário no estado local e localStorage
+            },
+
+            // Salva o usuário localmente
+            loginLocal(userData) {
+                state.user = userData;
+                // Salva a sessão no localStorage
+                localStorage.setItem('cupcake_user', JSON.stringify(userData));
+                updateNav(); // Atualiza a barra de navegação
+                showToast(`Bem-vindo(a), ${userData.name.split(' ')[0]}!`, 'success');
+                app.router('home');
+            },
+
+            // Desloga o usuário
+            logout() {
+                state.user = null;
+                state.cart = [];
+                localStorage.removeItem('cupcake_user');
+                updateCartBadge();
+                updateNav();
+                showToast("Você saiu.", 'info');
+                app.router('login');
+            }
+        };
+
+        /**
+         * Carrega os produtos da coleção 'products' do Firestore
+         * Usa onSnapshot para atualizações em tempo real (Admin)
+         */
+        function loadProductsFromFirestore() {
+            const productsRef = collection(db, "products");
+            // Ouve mudanças na coleção 'products'
+            onSnapshot(query(productsRef), (snapshot) => {
+                state.products = [];
+                snapshot.forEach((doc) => {
+                    state.products.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // Se a página 'home' estiver aberta, renderiza novamente os produtos
+                if (window.location.hash === '#home' || window.location.hash === '') {
+                    app.router('home');
+                }
+            });
+        }
+
+        // --- Objeto Global 'app' (Controlador) ---
+        // Contém todas as funções que a UI (View) pode chamar.
+        window.app = {
+            /**
+             * Roteador simples baseado em Hash (#)
+             * Renderiza a tela correta no container '#main-view'
+             */
+            router: (route) => {
+                const main = document.getElementById('main-view');
+                if(!main) return;
+                window.location.hash = route; // Atualiza a URL
+                main.innerHTML = ''; // Limpa a tela anterior
+                
+                // Seleciona qual tela renderizar
+                switch(route) {
+                    case 'home': renderHome(main); break;
+                    case 'cart': renderCart(main); break;
+                    case 'checkout': renderCheckout(main); break;
+                    case 'login': renderLogin(main); break;
+                    case 'register': renderRegister(main); break;
+                    case 'orders': renderOrders(main); break;
+                    case 'admin': renderAdmin(main); break; // Rota de Admin
+                    case 'admin-edit': renderAdminEdit(main); break; // Rota de Edição
+                    case 'admin-orders': renderAdminOrders(main); break; // Rota de Pedidos Admin
+                    default: renderHome(main);
+                }
+                // Atualiza os ícones (Lucide) na nova tela
+                if(window.lucide) window.lucide.createIcons();
+            },
+
+            // Adiciona um item ao carrinho (com lógica de quantidade)
+            addToCart: (id) => {
+                const product = state.products.find(p => p.id === id);
+                if (!product) return;
+
+                const cartItem = state.cart.find(item => item.id === id);
+                
+                if (cartItem) {
+                    // Se já existe, incrementa a quantidade
+                    cartItem.qty += 1;
+                } else {
+                    // Se não existe, adiciona ao carrinho com qty: 1
+                    state.cart.push({ ...product, qty: 1 });
+                }
+                
+                updateCartBadge();
+                showToast(`${product.name} adicionado!`, 'success');
+            },
+
+            // Altera a quantidade de um item no carrinho
+            changeCartQty: (id, amount) => {
+                const cartItem = state.cart.find(item => item.id === id);
+                if (!cartItem) return;
+
+                cartItem.qty += amount; // amount pode ser +1 ou -1
+
+                if (cartItem.qty <= 0) {
+                    // Remove o item se a quantidade for 0 ou menor
+                    state.cart = state.cart.filter(item => item.id !== id);
+                }
+                
+                updateCartBadge();
+                app.router('cart'); // Re-renderiza a tela do carrinho
+            },
+
+            // Submissão do formulário de login
+            loginSubmit: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button');
+                setLoading(btn, true);
+                try {
+                    await authService.login(document.getElementById('email').value, document.getElementById('pass').value);
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    setLoading(btn, false);
+                }
+            },
+
+            // Submissão do formulário de registro
+            registerSubmit: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button');
+                setLoading(btn, true);
+                try {
+                    await authService.register(document.getElementById('reg-name').value, document.getElementById('reg-email').value, document.getElementById('reg-pass').value);
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    setLoading(btn, false);
+                }
+            },
+
+            // Chamada de logout
+            logout: () => authService.logout(),
+
+            // Redireciona para o checkout
+            startCheckout: () => {
+                // Verifica se está logado
+                if (!state.user) { showToast("Faça login para finalizar o pedido", 'error'); app.router('login'); return; }
+                if (state.cart.length === 0) return;
+                app.router('checkout');
+            },
+
+            // Alterna a visualização dos métodos de pagamento
+            togglePayment: (method) => {
+                state.paymentMethod = method;
+                const cardForm = document.getElementById('card-form');
+                const pixInfo = document.getElementById('pix-info');
+                if(!cardForm) return;
+                cardForm.classList.add('hidden');
+                pixInfo.classList.add('hidden');
+                if(method === 'credit_card') cardForm.classList.remove('hidden');
+                if(method === 'pix') pixInfo.classList.remove('hidden');
+            },
+
+            // Processa o pagamento (simulação) e salva o pedido
+            processPayment: async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('pay-btn');
+                setLoading(btn, true); // Ativa o loading no botão
+
+                // Simula 2 segundos de processamento
+                setTimeout(async () => {
+                    try {
+                        if (!isFirebaseReady) throw new Error("Sem conexão com o banco.");
+                        
+                        // Nova Lógica: Salva na coleção 'all_orders'
+                        const ordersRef = collection(db, "all_orders");
+                        
+                        await addDoc(ordersRef, {
+                            // Salva os dados do cliente junto com o pedido
+                            customer: {
+                                name: state.user.name,
+                                email: state.user.email
+                            },
+                            items: state.cart,
+                            total: state.cart.reduce((acc, i) => acc + (i.price * i.qty), 0),
+                            createdAt: serverTimestamp(),
+                            status: 'Preparando', // Status Padrão
+                            paymentMethod: state.paymentMethod,
+                            address: document.getElementById('address-street').value + ', ' + document.getElementById('address-num').value
+                        });
+                        
+                        state.cart = []; // Esvazia o carrinho
+                        updateCartBadge();
+                        showToast("Pagamento Aprovado! Pedido Realizado 🎉", 'success');
+                        app.router('orders'); // Redireciona para "Meus Pedidos"
+                    } catch (err) {
+                        console.error(err);
+                        showToast("Erro: " + err.message, 'error');
+                        setLoading(btn, false); // Desativa o loading em caso de erro
+                    }
+                }, 2000); // 2 segundos de delay
+            },
+
+            // (ADMIN) Popula o banco com produtos de exemplo
+            seedDatabase: async () => {
+                const btn = document.getElementById('seed-btn');
+                if (!btn) return;
+                setLoading(btn, true);
+                showToast("Populando banco de dados, aguarde...", 'info');
+                
+                try {
+                    const productsRef = collection(db, "products");
+                    // Adiciona cada produto do 'state.seedProducts' ao Firestore
+                    for (const product of state.seedProducts) {
+                        await addDoc(productsRef, product);
+                    }
+                    showToast("Banco populado com 7 sabores!", 'success');
+                    app.router('admin'); // Recarrega a tela admin
+                } catch (err) {
+                    showToast("Erro ao popular: " + err.message, 'error');
+                    setLoading(btn, false);
+                }
+            },
+
+            // (ADMIN) Salva (cria ou atualiza) um produto
+            saveProduct: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const productId = document.getElementById('product-id').value;
+                setLoading(btn, true);
+
+                const productData = {
+                    name: document.getElementById('product-name').value,
+                    price: parseFloat(document.getElementById('product-price').value),
+                    desc: document.getElementById('product-desc').value,
+                    icon: document.getElementById('product-icon').value,
+                    image: document.getElementById('product-image').value,
+                    isAvailable: document.getElementById('product-available').checked
+                };
+
+                try {
+                    if (productId === 'new') {
+                        // Cria um novo produto
+                        await addDoc(collection(db, "products"), productData);
+                        showToast("Sabor criado com sucesso!", 'success');
+                    } else {
+                        // Atualiza um produto existente
+                        await setDoc(doc(db, "products", productId), productData);
+                        showToast("Sabor atualizado com sucesso!", 'success');
+                    }
+                    app.router('admin'); // Volta para a lista de produtos
+                } catch (err) {
+                    showToast("Erro ao salvar: " + err.message, 'error');
+                    setLoading(btn, false);
+                }
+            },
+
+            // (ADMIN) Navega para a tela de edição de produto
+            editProduct: (id) => {
+                // Guarda o ID na URL hash para a próxima tela saber qual produto carregar
+                window.location.hash = `admin-edit?id=${id}`; 
+                renderAdminEdit(document.getElementById('main-view'));
+                if(window.lucide) window.lucide.createIcons();
+            },
+
+            // (ADMIN) Deleta um produto
+            deleteProduct: async (id) => {
+                if (!confirm("Tem certeza que deseja apagar este sabor? Esta ação é irreversível.")) {
+                    return;
+                }
+                try {
+                    await deleteDoc(doc(db, "products", id));
+                    showToast("Sabor removido.", 'info');
+                    app.router('admin'); // Recarrega a tela admin
+                } catch (err) {
+                    showToast("Erro ao remover: " + err.message, 'error');
+                }
+            },
+
+            // (ADMIN) Atualiza o status de um pedido
+            updateOrderStatus: async (orderId, newStatus) => {
+                const orderRef = doc(db, "all_orders", orderId);
+                try {
+                    await updateDoc(orderRef, { status: newStatus });
+                    showToast(`Pedido #${orderId.slice(0,6)} atualizado!`, 'success');
+                    // Não precisa recarregar, o onSnapshot faz isso
+                } catch (err) {
+                    showToast("Erro ao atualizar status: " + err.message, 'error');
+                }
+            }
+        };
+
+        // --- Funções Auxiliares da UI ---
+        
+        // Configura os listeners dos botões fixos da Navbar
+        function setupNavListeners() {
+            document.getElementById('nav-logo').onclick = () => app.router('home');
+            document.getElementById('nav-cart-btn').onclick = () => app.router('cart');
+            document.getElementById('nav-orders-btn').onclick = () => app.router('orders');
+            document.getElementById('nav-logout-btn').onclick = () => app.logout();
+            document.getElementById('nav-login-btn').onclick = () => app.router('login');
+            document.getElementById('nav-admin-btn').onclick = () => app.router('admin');
+        }
+
+        // Esconde a tela de loading inicial
+        function hideLoadingScreen() { 
+            const screen = document.getElementById('app-loading'); 
+            if(screen) { 
+                screen.classList.add('opacity-0', 'pointer-events-none'); 
+                setTimeout(() => screen.remove(), 500); 
+            }
+        }
+        
+        // Mostra um erro fatal na tela de loading
+        function showError(msg) { 
+            const text = document.getElementById('error-text'); 
+            const loadingText = document.getElementById('loading-text'); 
+            const btn = document.getElementById('retry-btn'); 
+            if(text) { 
+                loadingText.classList.add('hidden'); 
+                text.innerText = msg; 
+                text.classList.remove('hidden'); 
+                btn.classList.remove('hidden'); 
+            }
+        }
+        
+        // Atualiza o status da conexão no rodapé
+        function updateStatus(online) { 
+            const dot = document.getElementById('status-dot'); 
+            const text = document.getElementById('status-text'); 
+            if(!dot || !text) return;
+            if(online) { 
+                dot.className = "w-2 h-2 rounded-full bg-green-500 animate-pulse"; 
+                text.innerText = "Conectado"; 
+                text.className = "text-green-600 font-bold"; 
+            } else { 
+                dot.className = "w-2 h-2 rounded-full bg-red-500"; 
+                text.innerText = "Offline"; 
+                text.className = "text-red-500 font-bold"; 
+            }
+        }
+        
+        // Coloca um spinner de loading em um botão
+        function setLoading(btn, isLoading) { 
+            if (!btn) return; 
+            if (isLoading) { 
+                btn.dataset.original = btn.innerHTML; 
+                btn.innerHTML = `<span class="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full"></span>`; 
+                btn.disabled = true; 
+                btn.classList.add('opacity-70'); 
+            } else { 
+                btn.innerHTML = btn.dataset.original; 
+                btn.disabled = false; 
+                btn.classList.remove('opacity-70'); 
+            }
+        }
+        
+        // Mostra uma notificação (toast) no canto da tela
+        function showToast(msg, type) { 
+            const box = document.getElementById('toast-box'); 
+            if (!box) return;
+            const el = document.createElement('div'); 
+            const colors = type === 'error' ? 'bg-red-500' : (type === 'success' ? 'bg-green-500' : 'bg-gray-800'); 
+            el.className = `${colors} text-white px-6 py-4 rounded-xl shadow-lg text-sm font-bold transform transition-all duration-300 translate-x-10 opacity-0 border border-white/10`; 
+            el.innerHTML = `<span>${msg}</span>`; 
+            box.appendChild(el); 
+            requestAnimationFrame(() => el.classList.remove('translate-x-10', 'opacity-0')); 
+            setTimeout(() => { 
+                el.classList.add('opacity-0', 'translate-y-4'); 
+                setTimeout(() => el.remove(), 300); 
+            }, 3000); 
+        }
+        
+        // Atualiza a UI da Navbar (Logado vs. Visitante)
+        function updateNav() { 
+            const userUI = document.getElementById('user-ui'); 
+            const guestUI = document.getElementById('guest-ui'); 
+            const adminBtn = document.getElementById('nav-admin-btn');
+            if (state.user) { 
+                userUI.classList.replace('hidden', 'flex'); 
+                document.getElementById('user-name-display').innerText = state.user.name.split(' ')[0]; 
+                guestUI.classList.add('hidden'); 
+                // Mostra o botão Admin se o usuário tiver a flag 'isAdmin'
+                if (state.user.isAdmin) {
+                    adminBtn.classList.remove('hidden');
+                } else {
+                    adminBtn.classList.add('hidden');
+                }
+            } else { 
+                userUI.classList.replace('flex', 'hidden'); 
+                guestUI.classList.remove('hidden'); 
+                adminBtn.classList.add('hidden');
+            } 
+        }
+        
+        // Atualiza o contador de itens no ícone do carrinho
+        function updateCartBadge() { 
+            const badge = document.getElementById('cart-count'); 
+            if (!badge) return;
+            // Soma a quantidade (qty) de todos os itens no carrinho
+            const totalQty = state.cart.reduce((sum, item) => sum + item.qty, 0);
+            badge.innerText = totalQty;
+            if(totalQty > 0) badge.classList.replace('scale-0', 'scale-100'); 
+            else badge.classList.replace('scale-100', 'scale-0'); 
+        }
+
+        // Retorna o HTML de imagem ou ícone para um produto
+        function getProductImage(p) { 
+            if (p.image) return `<img src="${p.image}" alt="${p.name}" class="w-full h-40 object-cover hover:scale-110 transition-transform duration-500">`; 
+            return `<div class="w-full h-40 bg-pink-50 flex items-center justify-center text-6xl transform group-hover:scale-110 transition-transform duration-300">${p.icon || '🧁'}</div>`; 
+        }
+
+        // --- Funções de Renderização (VIEWS) ---
+
+        /**
+         * Renderiza a Tela Inicial (Home)
+         * Mostra apenas produtos que estão 'isAvailable: true'
+         */
+        function renderHome(container) {
+            const wrapper = document.createElement('div');
+            wrapper.className = "max-w-5xl mx-auto pb-20 fade-in";
+            
+            // Filtra produtos disponíveis
+            const availableProducts = state.products.filter(p => p.isAvailable);
+            
+            let productGrid = '';
+            if (state.products.length === 0 && isFirebaseReady) {
+                // Se o banco foi carregado e está vazio
+                productGrid = `<div class="col-span-1 sm:col-span-2 lg:col-span-3 text-center py-12 bg-white rounded-2xl border border-dashed border-pink-200"><p class="text-gray-400 font-medium mb-4">Carregando sabores...</p><p class="text-xs text-gray-400">(Se for admin, popule o banco no Painel Admin)</p></div>`;
+            } else {
+                // Renderiza os produtos disponíveis
+                productGrid = availableProducts.map(p => `
+                    <div class="bg-white rounded-xl shadow-sm border border-pink-100 overflow-hidden hover:shadow-md transition flex flex-col group">
+                        <div class="overflow-hidden h-40 bg-pink-50 relative">${getProductImage(p)}</div>
+                        <div class="p-5 flex-1 flex flex-col">
+                            <div class="flex justify-between items-start mb-2">
+                                <h3 class="font-bold text-lg text-gray-800 leading-tight">${p.name}</h3>
+                                <span class="text-pink-600 font-bold bg-pink-50 px-2 py-1 rounded text-sm whitespace-nowrap">R$ ${p.price.toFixed(2)}</span>
+                            </div>
+                            <p class="text-gray-500 text-sm mb-4 flex-1">${p.desc}</p>
+                            <button onclick="app.addToCart('${p.id}')" class="w-full bg-gray-900 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
+                                <i data-lucide="plus" class="w-4 h-4"></i> Adicionar
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            wrapper.innerHTML = `
+                <!-- Header (Banner) -->
+                <div class="bg-gradient-to-r from-pink-500 to-rose-400 rounded-2xl p-8 text-white text-center shadow-lg mb-8 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 opacity-20 text-9xl transform translate-x-10 -translate-y-10">🧁</div>
+                    <h1 class="text-3xl font-bold mb-2 relative z-10">Felicidade em Cada Mordida!</h1>
+                    <p class="opacity-90 mb-6 relative z-10">Cadastre-se e receba em casa.</p>
+                    <button onclick="document.getElementById('menu').scrollIntoView({behavior:'smooth'})" class="bg-white text-pink-600 px-8 py-3 rounded-full font-bold hover:bg-pink-50 transition shadow-md relative z-10">Ver Cardápio</button>
+                </div>
+                
+                <div id="menu" class="h-1"></div>
+                
+                <!-- Grid de Produtos -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+                    ${productGrid}
+                </div>
+                
+                <!-- Seção de Avaliações (Estática) -->
+                <div class="bg-pink-50/50 rounded-3xl p-8 border border-pink-100">
+                    <h2 class="text-2xl font-bold text-center text-gray-800 mb-8 flex items-center justify-center gap-2"><i data-lucide="star" class="w-6 h-6 text-yellow-400 fill-yellow-400"></i> O que dizem nossos clientes</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        ${state.reviews.map(r => `
+                            <div class="bg-white p-5 rounded-xl shadow-sm border border-pink-50 hover:border-pink-200 transition">
+                                <div class="flex justify-between items-start mb-3">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold text-xs">${r.name.charAt(0)}</div>
+                                        <span class="font-bold text-gray-700 text-sm">${r.name}</span>
+                                    </div>
+                                    <span class="text-xs text-gray-400">${r.time}</span>
+                                </div>
+                                <div class="flex mb-2">${Array(5).fill(0).map((_, i) => `<i data-lucide="star" class="w-3 h-3 ${i < r.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'}"></i>`).join('')}</div>
+                                <p class="text-gray-600 text-sm italic">"${r.comment}"</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            container.appendChild(wrapper);
+        }
+
+        /**
+         * Renderiza a Tela do Carrinho
+         * Agora inclui botões de + e -
+         */
+        function renderCart(container) {
+            if (state.cart.length === 0) {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-[60vh] fade-in">
+                        <div class="bg-pink-50 p-6 rounded-full mb-4"><i data-lucide="shopping-bag" class="w-12 h-12 text-pink-300"></i></div>
+                        <h2 class="text-xl font-bold text-gray-600 mb-2">Sua caixa está vazia</h2>
+                        <button onclick="app.router('home')" class="text-pink-500 font-bold hover:underline">Escolher Doces</button>
+                    </div>`;
+                return;
+            }
+            
+            // Calcula o total (preço * quantidade)
+            const total = state.cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+            
+            container.innerHTML = `
+                <div class="max-w-2xl mx-auto bg-white rounded-2xl shadow-lg shadow-pink-100 border border-pink-50 overflow-hidden fade-in mb-20">
+                    <div class="p-6 bg-pink-50 border-b border-pink-100">
+                        <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i data-lucide="shopping-bag" class="w-5 h-5 text-pink-500"></i> Resumo do Pedido</h2>
+                    </div>
+                    
+                    <!-- Lista de Itens no Carrinho -->
+                    <div class="p-6">
+                        ${state.cart.map((item, i) => `
+                            <div class="flex items-center gap-4 py-4 border-b border-pink-50 last:border-0">
+                                <div class="w-16 h-16 rounded-xl bg-pink-50 flex items-center justify-center overflow-hidden text-2xl">${item.image ? `<img src="${item.image}" class="w-full h-full object-cover">` : item.icon}</div>
+                                <div class="flex-1">
+                                    <h4 class="font-bold text-gray-800">${item.name}</h4>
+                                    <span class="text-sm text-pink-500 font-bold">R$ ${item.price.toFixed(2)}</span>
+                                </div>
+                                <!-- Controle de Quantidade -->
+                                <div class="flex items-center gap-2 border border-gray-200 rounded-full px-2 py-1">
+                                    <button onclick="app.changeCartQty('${item.id}', -1)" class="text-gray-500 hover:text-red-500 p-1 rounded-full"><i data-lucide="minus" class="w-4 h-4"></i></button>
+                                    <span class="font-bold text-gray-800 text-sm w-4 text-center">${item.qty}</span>
+                                    <button onclick="app.changeCartQty('${item.id}', 1)" class="text-gray-500 hover:text-green-500 p-1 rounded-full"><i data-lucide="plus" class="w-4 h-4"></i></button>
+                                </div>
+                                <span class="font-bold text-gray-800 w-16 text-right">R$ ${(item.price * item.qty).toFixed(2)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <!-- Total e Finalizar -->
+                    <div class="bg-gray-50 p-6 border-t border-gray-100">
+                        <div class="flex justify-between items-end mb-4">
+                            <span class="text-gray-500 font-medium">Total</span>
+                            <span class="text-3xl font-bold text-pink-600">R$ ${total.toFixed(2)}</span>
+                        </div>
+                        <button onclick="app.startCheckout()" class="w-full bg-green-500 hover:bg-green-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-green-200 transition flex items-center justify-center gap-2 transform hover:-translate-y-1">
+                            <i data-lucide="check-circle" class="w-5 h-5"></i> Finalizar Compra
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Renderiza a Tela de Checkout (Simulação)
+         */
+        function renderCheckout(container) {
+            const total = state.cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+            container.innerHTML = `
+                <div class="max-w-2xl mx-auto bg-white p-6 rounded-2xl shadow-lg shadow-pink-100 border border-pink-50 fade-in mb-20">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="credit-card" class="text-pink-500"></i> Pagamento & Entrega</h2>
+                    <form onsubmit="app.processPayment(event)">
+                        <!-- Endereço -->
+                        <div class="mb-8">
+                            <h3 class="text-sm font-bold text-gray-500 uppercase mb-3 tracking-wide">Onde vamos entregar?</h3>
+                            <div class="grid grid-cols-3 gap-3">
+                                <div class="col-span-3"><input id="address-street" required type="text" placeholder="Rua / Avenida" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none"></div>
+                                <div class="col-span-1"><input id="address-num" required type="text" placeholder="Número" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none"></div>
+                                <div class="col-span-2"><input required type="text" placeholder="Bairro" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none"></div>
+                            </div>
+                        </div>
+                        <!-- Pagamento -->
+                        <div class="mb-8">
+                            <h3 class="text-sm font-bold text-gray-500 uppercase mb-3 tracking-wide">Como deseja pagar?</h3>
+                            <div class="space-y-3">
+                                <!-- Cartão -->
+                                <label class="cursor-pointer block relative">
+                                    <input type="radio" name="payment" value="credit_card" class="payment-radio hidden" checked onchange="app.togglePayment('credit_card')">
+                                    <div class="p-4 border-2 border-gray-100 rounded-xl flex items-center justify-between hover:border-pink-200 transition bg-white">
+                                        <div class="flex items-center gap-3"><div class="bg-gray-100 p-2 rounded-lg"><i data-lucide="credit-card" class="w-5 h-5 text-gray-600"></i></div><span class="font-bold text-gray-700">Cartão de Crédito</span></div>
+                                        <div class="check-icon w-5 h-5 bg-pink-500 rounded-full text-white flex items-center justify-center transform scale-0 transition-transform duration-200"><i data-lucide="check" class="w-3 h-3"></i></div>
+                                    </div>
+                                </label>
+                                <!-- Form Cartão (Simulado) -->
+                                <div id="card-form" class="p-4 bg-gray-50 rounded-xl border border-gray-100 mt-2">
+                                    <div class="space-y-3">
+                                        <input type="text" placeholder="Número do Cartão (Simulação)" class="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-pink-500">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <input type="text" placeholder="MM/AA" class="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-pink-500">
+                                            <input type="text" placeholder="CVV" class="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-pink-500">
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Pix -->
+                                <label class="cursor-pointer block relative">
+                                    <input type="radio" name="payment" value="pix" class="payment-radio hidden" onchange="app.togglePayment('pix')">
+                                    <div class="p-4 border-2 border-gray-100 rounded-xl flex items-center justify-between hover:border-pink-200 transition bg-white">
+                                        <div class="flex items-center gap-3"><div class="bg-gray-100 p-2 rounded-lg"><i data-lucide="qr-code" class="w-5 h-5 text-gray-600"></i></div><span class="font-bold text-gray-700">Pix</span></div>
+                                        <div class="check-icon w-5 h-5 bg-pink-500 rounded-full text-white flex items-center justify-center transform scale-0 transition-transform duration-200"><i data-lucide="check" class="w-3 h-3"></i></div>
+                                    </div>
+                                </label>
+                                <!-- Info Pix (Simulado) -->
+                                <div id="pix-info" class="hidden p-6 bg-gray-50 rounded-xl border border-gray-100 mt-2 text-center">
+                                    <i data-lucide="qr-code" class="w-24 h-24 text-gray-800 mx-auto mb-2"></i><p class="text-sm text-gray-500 font-medium">Escaneie o QR Code (Simulação)</p>
+                                </div>
+                                <!-- Dinheiro -->
+                                <label class="cursor-pointer block relative">
+                                    <input type="radio" name="payment" value="cash" class="payment-radio hidden" onchange="app.togglePayment('cash')">
+                                    <div class="p-4 border-2 border-gray-100 rounded-xl flex items-center justify-between hover:border-pink-200 transition bg-white">
+                                        <div class="flex items-center gap-3"><div class="bg-gray-100 p-2 rounded-lg"><i data-lucide="banknote" class="w-5 h-5 text-gray-600"></i></div><span class="font-bold text-gray-700">Dinheiro na Entrega</span></div>
+                                        <div class="check-icon w-5 h-5 bg-pink-500 rounded-full text-white flex items-center justify-center transform scale-0 transition-transform duration-200"><i data-lucide="check" class="w-3 h-3"></i></div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <button type="submit" id="pay-btn" class="w-full bg-pink-500 hover:bg-pink-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-pink-200 transition flex items-center justify-center gap-2 text-lg">Pagar R$ ${total.toFixed(2)}</button>
+                    </form>
+                </div>`;
+        }
+
+        /**
+         * Renderiza a Tela "Meus Pedidos" (Cliente)
+         * Lê da coleção 'all_orders' e filtra pelo email do cliente.
+         */
+        function renderOrders(container) {
+            // Proteção: Apenas usuários logados
+            if(!state.user) return app.router('login');
+            
+            container.innerHTML = `
+                <div class="max-w-2xl mx-auto fade-in pb-20">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="bg-pink-100 p-2 rounded-lg text-pink-600"><i data-lucide="package" class="w-6 h-6"></i></div>
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">Meus Pedidos</h2>
+                            <p class="text-xs text-gray-500">Logado como <span class="font-bold">${state.user.email}</span></p>
+                        </div>
+                    </div>
+                    <div id="orders-list" class="space-y-4">
+                        <div class="animate-pulse h-32 bg-white rounded-2xl"></div>
+                    </div>
+                </div>`;
+            
+            const list = document.getElementById('orders-list');
+            const ref = collection(db, "all_orders");
+            
+            // Query que busca em 'all_orders' apenas onde o email do cliente bate
+            const q = query(ref, where("customer.email", "==", state.user.email), orderBy("createdAt", "desc"));
+
+            onSnapshot(q, (snap) => {
+                if(!document.getElementById('orders-list')) return; // Previne erro se o usuário sair da tela
+                list.innerHTML = '';
+                if (snap.empty) {
+                    list.innerHTML = `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-pink-200"><p class="text-gray-400 font-medium mb-4">Nenhum pedido ainda.</p><button onclick="app.router('home')" class="text-pink-500 font-bold hover:underline">Fazer meu primeiro pedido</button></div>`;
+                    return;
+                }
+                
+                // Mapeamento de Status (Cor, Ícone, Texto)
+                const statusMap = {
+                    'Preparando': { text: 'Preparando', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: `<div class="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div>` },
+                    'A caminho': { text: 'A caminho', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: `<i data-lucide="truck" class="w-3 h-3"></i>` },
+                    'Finalizado': { text: 'Finalizado', color: 'bg-green-100 text-green-700 border-green-200', icon: `<i data-lucide="check" class="w-3 h-3"></i>` }
+                };
+
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const date = d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '...';
+                    const payMethodMap = { 'credit_card': 'Cartão de Crédito', 'pix': 'Pix', 'cash': 'Dinheiro' };
+                    const statusInfo = statusMap[d.status] || statusMap['Preparando']; // Padrão é 'Preparando'
+
+                    list.innerHTML += `
+                        <div class="bg-white p-6 rounded-2xl border border-pink-100 shadow-sm hover:shadow-md transition-shadow group">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <span class="text-xs font-bold bg-pink-100 text-pink-600 px-2 py-1 rounded uppercase tracking-wide">#${doc.id.slice(0,6)}</span>
+                                    <div class="text-xs text-gray-400 mt-2 flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> ${date}</div>
+                                </div>
+                                <span class="${statusInfo.color} px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5">
+                                    ${statusInfo.icon} ${statusInfo.text}
+                                </span>
+                            </div>
+                            <div class="space-y-1 mb-4">
+                                ${d.items.map(i => `<div class="text-sm text-gray-600 flex items-center gap-2">
+                                    <span class="text-lg">${i.image ? '📸' : i.icon}</span> 
+                                    <span class="font-bold">${i.qty}x</span> ${i.name}
+                                </div>`).join('')}
+                            </div>
+                            <div class="pt-4 border-t border-pink-50 flex justify-between items-center">
+                                <span class="text-xs text-gray-500 font-medium flex items-center gap-1"><i data-lucide="wallet" class="w-3 h-3"></i> ${payMethodMap[d.paymentMethod] || 'Outro'}</span>
+                                <span class="text-lg font-bold text-pink-600">R$ ${d.total.toFixed(2)}</span>
+                            </div>
+                        </div>`;
+                });
+                if(window.lucide) window.lucide.createIcons();
+            });
+        }
+
+        /**
+         * Renderiza a Tela de Login
+         */
+        function renderLogin(container) {
+            container.innerHTML = `
+                <div class="max-w-md mx-auto mt-6 bg-white p-8 rounded-2xl shadow-xl shadow-pink-100 border border-pink-50 fade-in">
+                    <div class="text-center mb-6">
+                        <div class="w-16 h-16 bg-pink-50 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">👋</div>
+                        <h2 class="text-2xl font-bold text-gray-800">Bem-vindo!</h2>
+                    </div>
+                    <form onsubmit="app.loginSubmit(event)" class="space-y-4">
+                        <div>
+                            <label class="text-xs font-bold text-gray-500 ml-1 uppercase">E-mail</label>
+                            <input type="email" id="email" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs font-bold text-gray-500 ml-1 uppercase">Senha</label>
+                            <input type="password" id="pass" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none">
+                        </div>
+                        <button type="submit" class="w-full bg-pink-500 text-white py-3.5 rounded-xl font-bold hover:bg-pink-600 transition shadow-lg shadow-pink-200 mt-2">Entrar</button>
+                    </form>
+                    <p class="text-center mt-6 text-sm text-gray-500">Não tem conta? <button onclick="app.router('register')" class="text-pink-600 font-bold hover:underline">Cadastre-se grátis</button></p>
+                </div>`;
+        }
+
+        /**
+         * Renderiza a Tela de Registro
+         */
+        function renderRegister(container) {
+            container.innerHTML = `
+                <div class="max-w-md mx-auto mt-6 bg-white p-8 rounded-2xl shadow-xl shadow-pink-100 border border-pink-50 fade-in">
+                    <div class="text-center mb-6">
+                        <div class="w-16 h-16 bg-pink-50 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">✨</div>
+                        <h2 class="text-2xl font-bold text-gray-800">Criar Conta</h2>
+                    </div>
+                    <form onsubmit="app.registerSubmit(event)" class="space-y-4">
+                        <input type="text" id="reg-name" placeholder="Seu Nome" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none">
+                        <input type="email" id="reg-email" placeholder="E-mail" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none">
+                        <input type="password" id="reg-pass" placeholder="Senha" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-pink-500 outline-none">
+                        <button type="submit" class="w-full bg-pink-500 text-white py-3.5 rounded-xl font-bold hover:bg-pink-600 transition shadow-lg shadow-pink-200 mt-2">Cadastrar</button>
+                    </form>
+                    <p class="text-center mt-6 text-sm text-gray-500">Já é cliente? <button onclick="app.router('login')" class="text-pink-600 font-bold hover:underline">Fazer Login</button></p>
+                </div>`;
+        }
+
+        /**
+         * Renderiza a Tela Principal do Admin
+         * Protegida: Somente para state.user.isAdmin === true
+         */
+        function renderAdmin(container) {
+            // Proteção de Rota
+            if(!state.user || !state.user.isAdmin) {
+                showToast("Acesso negado.", 'error');
+                return app.router('home');
+            }
+
+            let seedButton = '';
+            // Mostra o botão de popular apenas se o banco estiver vazio
+            if (state.products.length === 0) {
+                seedButton = `<div class="p-4 bg-yellow-100 border border-yellow-200 rounded-xl mb-4 text-center">
+                    <p class="text-sm text-yellow-800 font-medium mb-2">Seu banco de produtos está vazio.</p>
+                    <button id="seed-btn" onclick="app.seedDatabase()" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold px-4 py-2 rounded-lg">
+                        Popular Banco de Dados (7 Sabores)
+                    </button>
+                </div>`;
+            }
+
+            container.innerHTML = `
+                <div class="max-w-4xl mx-auto fade-in pb-20">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">Painel do Administrador</h2>
+                    
+                    ${seedButton}
+                    
+                    <!-- Botões de Navegação do Admin -->
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <button onclick="app.router('admin')" class="bg-blue-600 text-white p-4 rounded-xl font-bold text-center flex items-center justify-center gap-2 shadow-lg">
+                            <i data-lucide="cake"></i> Gerenciar Produtos
+                        </button>
+                        <button onclick="app.router('admin-orders')" class="bg-gray-700 hover:bg-gray-800 text-white p-4 rounded-xl font-bold text-center flex items-center justify-center gap-2">
+                            <i data-lucide="clipboard-list"></i> Gerenciar Pedidos
+                        </button>
+                    </div>
+
+                    <!-- Gerenciamento de Produtos -->
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-gray-700">Sabores Cadastrados (${state.products.length})</h3>
+                        <button onclick="app.editProduct('new')" class="bg-green-500 hover:bg-green-600 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2">
+                            <i data-lucide="plus" class="w-4 h-4"></i> Novo Sabor
+                        </button>
+                    </div>
+
+                    <div id="admin-products-list" class="bg-white rounded-xl shadow-lg shadow-pink-100 border border-pink-50 overflow-hidden">
+                        <!-- Cabeçalho da Tabela -->
+                        <div class="grid grid-cols-5 gap-4 p-4 bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-bold">
+                            <span>Sabor</span>
+                            <span>Preço</span>
+                            <span>Disponível?</span>
+                            <span>ID</span>
+                            <span class="text-right">Ações</span>
+                        </div>
+                        <!-- Lista de Produtos -->
+                        ${state.products.map(p => `
+                            <div class="grid grid-cols-5 gap-4 p-4 border-b border-pink-50 items-center text-sm">
+                                <span class="font-bold text-gray-800">${p.name}</span>
+                                <span class="text-gray-600">R$ ${p.price.toFixed(2)}</span>
+                                <span>
+                                    ${p.isAvailable 
+                                        ? '<span class="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Sim</span>' 
+                                        : '<span class="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Não</span>'
+                                    }
+                                </span>
+                                <span class="text-xs text-gray-400 font-mono">${p.id.slice(0,6)}...</span>
+                                <div class="flex justify-end gap-2">
+                                    <button onclick="app.editProduct('${p.id}')" class="text-blue-500 hover:bg-blue-50 p-2 rounded-lg"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                                    <button onclick="app.deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 p-2 rounded-lg"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${state.products.length === 0 ? '<p class="text-center p-8 text-gray-400">Nenhum produto cadastrado.</p>' : ''}
+                    </div>
+                </div>`;
+        }
+
+        /**
+         * Renderiza a Tela de Edição/Criação de Produto (Admin)
+         */
+        function renderAdminEdit(container) {
+            // Proteção de Rota
+            if(!state.user || !state.user.isAdmin) {
+                showToast("Acesso negado.", 'error');
+                return app.router('home');
+            }
+
+            // Pega o ID da URL (ex: #admin-edit?id=123)
+            const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+            const productId = urlParams.get('id');
+
+            let product = { id: 'new', name: '', price: 10.00, desc: '', icon: '🧁', image: '', isAvailable: true };
+            let title = "Criar Novo Sabor";
+
+            if (productId !== 'new') {
+                // Se está editando, encontra o produto no estado
+                const existingProduct = state.products.find(p => p.id === productId);
+                if (existingProduct) {
+                    product = existingProduct;
+                    title = "Editar Sabor";
+                }
+            }
+
+            container.innerHTML = `
+                <div class="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl shadow-pink-100 border border-pink-50 fade-in mb-20">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6">${title}</h2>
+                    <form onsubmit="app.saveProduct(event)" class="space-y-4">
+                        <input type="hidden" id="product-id" value="${product.id}">
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 ml-1 uppercase">Nome do Sabor</label>
+                                <input type="text" id="product-name" value="${product.name}" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-pink-500">
+                            </div>
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 ml-1 uppercase">Preço (R$)</label>
+                                <input type="number" step="0.01" id="product-price" value="${product.price.toFixed(2)}" required class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-pink-500">
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="text-xs font-bold text-gray-500 ml-1 uppercase">Descrição Curta</label>
+                            <input type="text" id="product-desc" value="${product.desc}" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-pink-500">
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 ml-1 uppercase">Ícone (Emoji)</label>
+                                <input type="text" id="product-icon" value="${product.icon}" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-pink-500">
+                            </div>
+                            <div>
+                                <label class="text-xs font-bold text-gray-500 ml-1 uppercase">URL da Imagem (Opcional)</label>
+                                <input type="text" id="product-image" value="${product.image}" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-pink-500">
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-3 pt-2">
+                            <input type="checkbox" id="product-available" ${product.isAvailable ? 'checked' : ''} class="h-5 w-5 rounded text-pink-500 focus:ring-pink-400">
+                            <label for="product-available" class="font-bold text-gray-700">Sabor Disponível para Venda</label>
+                        </div>
+                        
+                        <div class="flex gap-4 pt-4">
+                            <button type="submit" class="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold hover:bg-green-600 transition shadow-lg shadow-green-200">Salvar Alterações</button>
+                            <button type="button" onclick="app.router('admin')" class="w-1/3 bg-gray-200 text-gray-700 py-3.5 rounded-xl font-bold hover:bg-gray-300 transition">Cancelar</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        /**
+         * Renderiza a Tela de Gerenciamento de Pedidos (Admin)
+         * Mostra TODOS os pedidos e permite a mudança de status.
+         */
+        function renderAdminOrders(container) {
+            // Proteção de Rota
+            if(!state.user || !state.user.isAdmin) {
+                showToast("Acesso negado.", 'error');
+                return app.router('home');
+            }
+
+            container.innerHTML = `
+                <div class="max-w-4xl mx-auto fade-in pb-20">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">Painel do Administrador</h2>
+                    
+                    <!-- Botões de Navegação do Admin -->
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <button onclick="app.router('admin')" class="bg-gray-700 hover:bg-gray-800 text-white p-4 rounded-xl font-bold text-center flex items-center justify-center gap-2">
+                            <i data-lucide="cake"></i> Gerenciar Produtos
+                        </button>
+                        <button onclick="app.router('admin-orders')" class="bg-blue-600 text-white p-4 rounded-xl font-bold text-center flex items-center justify-center gap-2 shadow-lg">
+                            <i data-lucide="clipboard-list"></i> Gerenciar Pedidos
+                        </button>
+                    </div>
+
+                    <h3 class="text-xl font-bold text-gray-700 mb-4">Pedidos Recebidos</h3>
+                    
+                    <div id="admin-orders-list" class="space-y-4">
+                        <div class="animate-pulse h-48 bg-white rounded-2xl"></div>
+                    </div>
+                </div>
+            `;
+
+            const list = document.getElementById('admin-orders-list');
+            const ref = collection(db, "all_orders");
+            
+            // Query que busca TODOS os pedidos, ordenados pelo mais recente
+            const q = query(ref, orderBy("createdAt", "desc"));
+
+            onSnapshot(q, (snap) => {
+                if(!document.getElementById('admin-orders-list')) return; 
+                list.innerHTML = '';
+                if (snap.empty) {
+                    list.innerHTML = `<div class="text-center py-12 bg-white rounded-2xl border border-dashed border-pink-200"><p class="text-gray-400 font-medium">Nenhum pedido recebido ainda.</p></div>`;
+                    return;
+                }
+                
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const docId = doc.id;
+                    const date = d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleString('pt-BR') : '...';
+                    
+                    list.innerHTML += `
+                        <div class="bg-white p-6 rounded-2xl border border-pink-100 shadow-sm">
+                            <!-- Header do Pedido -->
+                            <div class="flex justify-between items-start pb-4 border-b border-pink-50">
+                                <div>
+                                    <span class="text-sm font-bold bg-pink-100 text-pink-600 px-3 py-1 rounded-full uppercase tracking-wide">#${docId.slice(0,6)}</span>
+                                    <p class="text-xs text-gray-400 mt-2">${date}</p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="font-bold text-gray-800">${d.customer.name}</p>
+                                    <p class="text-xs text-gray-500">${d.customer.email}</p>
+                                Route: /
+                                </div>
+                            </div>
+                            
+                            <!-- Corpo do Pedido -->
+                            <div class="grid grid-cols-3 gap-6 py-4">
+                                <!-- Itens -->
+                                <div class="col-span-2 space-y-2">
+                                    <h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Itens</h4>
+                                    ${d.items.map(i => `
+                                        <div class="text-sm text-gray-600 flex items-center gap-2">
+                                            <span class="font-bold">${i.qty}x</span> 
+                                            <span>${i.name}</span>
+                                            <span class="text-xs text-gray-400">(R$ ${i.price.toFixed(2)})</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                <!-- Endereço e Total -->
+                                <div>
+                                    <h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Endereço</h4>
+                                    <p class="text-sm text-gray-600">${d.address}</p>
+                                    <h4 class="text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Total</h4>
+                                    <p class="text-lg font-bold text-pink-600">R$ ${d.total.toFixed(2)}</Tudo></p>
+                                </div>
+                            </div>
+
+                            <!-- Ação do Admin (Mudar Status) -->
+                            <div class="pt-4 border-t border-gray-100 bg-gray-50 -m-6 mt-4 p-6 rounded-b-2xl">
+                                <label class="text-xs font-bold text-gray-500 uppercase">Alterar Status do Pedido</label>
+                                <select 
+                                    onchange="app.updateOrderStatus('${docId}', this.value)" 
+                                    class="w-full mt-1 p-2 border border-gray-300 rounded-lg bg-white outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 font-bold"
+                                >
+                                    <option value="Preparando" ${d.status === 'Preparando' ? 'selected' : ''}>Preparando</option>
+                                    <option value="A caminho" ${d.status === 'A caminho' ? 'selected' : ''}>A caminho</option>
+                                    <option value="Finalizado" ${d.status === 'Finalizado' ? 'selected' : ''}>Finalizado</option>
+                                </select>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+        }
+        
+        // --- Inicialização ---
+        // Espera o DOM carregar e inicializa o app
+        document.addEventListener('DOMContentLoaded', initApp);
+
+    </script>
+</body>
+</html>
